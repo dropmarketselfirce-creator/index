@@ -30,6 +30,7 @@
                 <i class="fa-solid fa-user-shield text-5xl text-purple-500 mb-4 animate-pulse"></i>
                 <h2 class="text-3xl font-bold">Painel Admin</h2>
                 <p class="text-gray-400">Entre com suas credenciais</p>
+                <p class="text-xs text-yellow-500 mt-2">Primeiro acesso? Digite uma senha para criar.</p>
             </div>
             <form onsubmit="handleLogin(event)" class="space-y-4">
                 <input type="number" id="login-id" placeholder="ID do Admin" class="w-full bg-gray-800 border border-gray-700 p-3 rounded text-white focus:border-purple-500 outline-none transition" required>
@@ -197,7 +198,7 @@
                             </div>
                         </div>
 
-                        <!-- SEGURANÇA / TRANSFERÊNCIA (NOVO) -->
+                        <!-- SEGURANÇA / TRANSFERÊNCIA -->
                         <div class="glass p-6 rounded-xl md:col-span-2 border-l-4 border-red-500">
                             <h3 class="font-bold text-lg mb-4 text-white"><i class="fa-solid fa-shield-halved"></i> Segurança e Acesso</h3>
                             <div class="grid md:grid-cols-2 gap-4">
@@ -212,7 +213,7 @@
                             </div>
                         </div>
 
-                        <!-- GESTÃO DE ADMINISTRADORES (NOVO) -->
+                        <!-- GESTÃO DE ADMINISTRADORES -->
                         <div class="glass p-6 rounded-xl md:col-span-2 border-l-4 border-yellow-500">
                             <h3 class="font-bold text-lg mb-4 text-white"><i class="fa-solid fa-users-gear"></i> Administradores (Telegram)</h3>
                             <p class="text-xs text-gray-400 mb-4">Adicione IDs de usuários que podem usar o comando /admin no bot.</p>
@@ -260,6 +261,7 @@
                 <!-- VIEW: USUÁRIOS (COM EDIÇÃO DE SALDO) -->
                 <div id="view-usuarios" class="hidden space-y-6">
                     <h1 class="text-2xl md:text-3xl font-bold">Base de Usuários</h1>
+                    <p class="text-sm text-gray-400">Todos os usuários que já iniciaram o bot.</p>
                     <div class="overflow-x-auto glass rounded-xl">
                         <table class="w-full text-left min-w-[600px]">
                             <thead class="bg-gray-800/50 text-gray-400 uppercase text-xs">
@@ -365,7 +367,7 @@
             }
         }
 
-        // --- LOGIN ---
+        // --- LOGIN REVISADO E CORRIGIDO ---
         window.onload = () => {
             const saved = localStorage.getItem('balerion_id');
             if(saved) document.getElementById('login-id').value = saved;
@@ -379,21 +381,34 @@
             feedback.classList.add('hidden');
 
             try {
+                // Tenta buscar a senha atual no banco
                 const snap = await db.ref(`${id}/config/senha`).once('value');
                 const realPass = snap.val();
                 
-                if(realPass === null && pass === 'admin') {
-                    await db.ref(`${id}/config/senha`).set('admin');
+                // LÓGICA DE PRIMEIRO ACESSO CORRIGIDA
+                // Se a senha for nula (não existe), define a senha digitada como a senha oficial
+                if(realPass === null) {
+                    if(pass.length < 4) {
+                        feedback.innerText = "Para o primeiro acesso, crie uma senha com pelo menos 4 caracteres.";
+                        feedback.classList.remove('hidden');
+                        return;
+                    }
+                    // Salva a senha que o usuário digitou
+                    await db.ref(`${id}/config/senha`).set(pass);
                     await db.ref(`${id}/config/data_inicio`).set(Date.now());
+                    alert("✅ Senha Mestra definida com sucesso!\nUse esta senha nos próximos acessos.");
                     enterDashboard(id);
-                } else if(String(realPass) === String(pass)) {
+                } 
+                // Se a senha já existe, compara
+                else if(String(realPass) === String(pass)) {
                     enterDashboard(id);
                 } else {
                     feedback.innerText = "Senha ou ID incorretos!";
                     feedback.classList.remove('hidden');
                 }
             } catch(err) { 
-                feedback.innerText = "Erro de conexão!";
+                console.error(err);
+                feedback.innerText = "Erro de conexão! Verifique o ID.";
                 feedback.classList.remove('hidden');
             }
         }
@@ -413,7 +428,7 @@
             document.getElementById('dashboard-screen').classList.remove('hidden');
             initListeners();
             loadConfigs();
-            loadAdmins(); // Carrega os admins
+            loadAdmins();
             updateSubscriptionTimer();
         }
 
@@ -501,11 +516,21 @@
                 });
             });
 
-            db.ref(`${currentAdminId}/usuarios`).orderByChild('saldo').startAt(0.01).on('value', snap => {
+            // --- CORREÇÃO: LISTAGEM DE USUÁRIOS COMPLETA ---
+            // Removemos .startAt(0.01) para mostrar usuários com saldo 0
+            db.ref(`${currentAdminId}/usuarios`).orderByChild('saldo').on('value', snap => {
                 const tbody = document.getElementById('users-table-body');
                 tbody.innerHTML = '';
+                
+                const users = [];
                 snap.forEach(child => {
-                    const u = child.val();
+                    users.push(child.val());
+                });
+                
+                // Opcional: Reverter para mostrar mais recentes (ou ordenar por saldo)
+                // users.reverse(); 
+
+                users.forEach(u => {
                     tbody.innerHTML += `
                         <tr class="hover:bg-white/5 border-b border-gray-800">
                             <td class="p-4 font-mono text-xs text-gray-400">${u.id}</td>
@@ -519,7 +544,7 @@
                             </td>
                         </tr>`;
                 });
-                document.getElementById('stat-users').innerText = snap.numChildren();
+                document.getElementById('stat-users').innerText = users.length;
             });
         }
 
@@ -614,7 +639,6 @@
             alert('Salvo!');
         }
 
-        // --- NOVA FUNÇÃO: ALTERAR SENHA ---
         async function changePassword() {
             const newPass = document.getElementById('new-password').value;
             if (!newPass || newPass.length < 4) {
@@ -628,7 +652,6 @@
             }
         }
 
-        // --- FUNÇÕES DE ADMINS (TELEGRAM) ---
         function loadAdmins() {
             db.ref(`${currentAdminId}/config/admins`).on('value', snap => {
                 const listDiv = document.getElementById('admins-list');
@@ -669,7 +692,6 @@
                 await db.ref(`${currentAdminId}/config/admins/${key}`).remove();
             }
         }
-
     </script>
 </body>
 </html>
